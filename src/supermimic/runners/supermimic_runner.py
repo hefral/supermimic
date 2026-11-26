@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
@@ -390,7 +391,19 @@ class SuperMimicRunner:
     log_dir = Path("logs", self.task_id, timestamp)
     log_dir.mkdir(parents=True, exist_ok=True)
     print(f"[INFO] Logging to {log_dir}")
+    self._save_local_config(log_dir)
     return log_dir
+
+  def _save_local_config(self, log_dir: Path) -> None:
+    """Write the runner cfg and motion source next to the checkpoints, so
+    ``play.py --checkpoint-dir`` can rebuild the run without W&B."""
+    motion_file = getattr(self.env.cfg.commands["motion"], "motion_file", None)
+    config = {
+      "task_id": self.task_id,
+      "runner_cfg": asdict(self.cfg),
+      "motion_file": motion_file,
+    }
+    (log_dir / "config.json").write_text(json.dumps(config, indent=2, default=str))
 
   def _init_wandb(self, log_dir: Path) -> None:
     """Initialize the W&B run and link the registry artifacts."""

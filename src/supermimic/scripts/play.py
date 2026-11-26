@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +34,11 @@ from supermimic.utils.wandb_artifacts import (
 
 @dataclass
 class PlayConfig:
-  wandb_path: str
+  wandb_path: str | None = None
+  """W&B run path to load the checkpoint from."""
+  checkpoint_dir: str | None = None
+  """Local run dir (``logs/<task>/<timestamp>``) holding ``config.json``,
+  ``world_model.pt`` and ``actor.pt``; replaces ``wandb_path``."""
   motion_file: str | None = None
   initial_task: Literal["motion", "velocity"] = "motion"
   """Task selected when the viewer opens. Switch live via the GUI dropdown."""
@@ -51,25 +56,47 @@ def play(task_id: str, cfg: PlayConfig) -> None:
   env_cfg.scene.num_envs = 1
   env_cfg.observations["actor"].enable_corruption = True
 
-  import wandb
+  if (cfg.wandb_path is None) == (cfg.checkpoint_dir is None):
+    raise ValueError("pass exactly one of --wandb-path or --checkpoint-dir")
 
-  print(f"[INFO] Connecting to WandB run: {cfg.wandb_path}")
-  run = wandb.Api().run(cfg.wandb_path)
-  runner_cfg = load_runner_cfg(run.config)
+  run = None
+  motion_artifacts = []
+  motion_source: str | list[str] | None = cfg.motion_file
+  if cfg.checkpoint_dir is not None:
+    model_dir = Path(cfg.checkpoint_dir).expanduser()
+    config_path = model_dir / "config.json"
+    if not config_path.exists():
+      raise FileNotFoundError(f"{config_path} not found; is this a training log dir?")
+    print(f"[INFO] Loading local checkpoint: {model_dir}")
+    run_config = json.loads(config_path.read_text())
+    if motion_source is None:
+      motion_source = run_config.get("motion_file")
+  else:
+    import wandb
+
+    assert cfg.wandb_path is not None
+    print(f"[INFO] Connecting to WandB run: {cfg.wandb_path}")
+    run = wandb.Api().run(cfg.wandb_path)
+    run_config = run.config
+    model_dir = None
+    motion_artifacts = [a for a in run.used_artifacts() if a.type == "motions"]
+  runner_cfg = load_runner_cfg(run_config)
   check_representation_matches(task_id, runner_cfg.representation)
 
-  motion_artifacts = [a for a in run.used_artifacts() if a.type == "motions"]
   command_term = env_cfg.commands["motion"]
   assert isinstance(command_term, MotionCommandCfg)
   motion_names: list[str] = []
-  if cfg.motion_file is not None:
-    expanded = os.path.expanduser(cfg.motion_file)
-    if any(c in expanded for c in "*?[]"):
-      files = sorted(glob.glob(expanded))
-    else:
-      files = [expanded]
+  if motion_source is not None:
+    sources = motion_source if isinstance(motion_source, list) else [motion_source]
+    files = []
+    for source in sources:
+      expanded = os.path.expanduser(source)
+      if any(c in expanded for c in "*?[]"):
+        files += sorted(glob.glob(expanded))
+      else:
+        files.append(expanded)
     if not files:
-      raise ValueError(f"No motion files matched: {cfg.motion_file}")
+      raise ValueError(f"No motion files matched: {motion_source}")
     command_term.motion_file = files
     motion_names = [Path(f).stem for f in files]
     print(f"[INFO] Using {len(files)} local motion(s)")
@@ -90,7 +117,8 @@ def play(task_id: str, cfg: PlayConfig) -> None:
   representation = wm.representation
   dynamics = wm.dynamics
 
-  model_dir = download_model_dir(run)
+  if model_dir is None:
+    model_dir = download_model_dir(run)
   wm.load_bundle(torch.load(model_dir / "world_model.pt", map_location=device))
   dynamics.eval()
 
