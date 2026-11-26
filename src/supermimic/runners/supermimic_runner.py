@@ -434,6 +434,7 @@ class SuperMimicRunner:
     env_close_fn = getattr(self.env, "close", None)
     if env_close_fn:
       env_close_fn()
+    self.logger.close()
     wandb.finish()
 
   def _init_policy(self) -> None:
@@ -587,6 +588,7 @@ class SuperMimicRunner:
   def run(self) -> None:
     log_dir = self._create_log_dir()
     self._init_wandb(log_dir)
+    self.logger.open_tensorboard(log_dir)
 
     self.env.reset()
     self._seed_sim_history()

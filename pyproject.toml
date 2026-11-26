@@ -13,6 +13,8 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "mjlab",
     "ruff>=0.14.10",
+    "setuptools<81",
+    "tensorboard>=2.20.0",
     "viser>=1.0.24",
 ]
 

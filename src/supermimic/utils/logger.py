@@ -3,14 +3,16 @@ from __future__ import annotations
 import statistics
 import time
 from collections import deque
+from pathlib import Path
 
 import torch
 import wandb
+from torch.utils.tensorboard import SummaryWriter
 
 
 class Logger:
-  """Episode statistics of the real env, logged as one W&B row and one console
-  block per log call."""
+  """Episode statistics of the real env, logged as one W&B row, one TensorBoard
+  step (once ``open_tensorboard`` has run) and one console block per log call."""
 
   def __init__(
     self,
@@ -26,6 +28,7 @@ class Logger:
 
     self.tot_timesteps = 0
     self.tot_time = 0.0
+    self.tb_writer: SummaryWriter | None = None
 
     # Create buffers
     self.ep_extras = []
@@ -37,6 +40,15 @@ class Logger:
     self.cur_episode_length = torch.zeros(
       self.num_envs, dtype=torch.float, device=self.device
     )
+
+  def open_tensorboard(self, log_dir: Path) -> None:
+    """Write TensorBoard events into ``log_dir`` from now on."""
+    self.tb_writer = SummaryWriter(log_dir=str(log_dir))
+
+  def close(self) -> None:
+    if self.tb_writer is not None:
+      self.tb_writer.close()
+      self.tb_writer = None
 
   def process_env_step(
     self,
@@ -178,6 +190,10 @@ class Logger:
       row["Train/mean_episode_length"] = statistics.mean(self.lenbuffer)
     row |= {k if "/" in k else f"Episode/{k}": v for k, v in extras.items()}
     wandb.log(row, step=it)
+    if self.tb_writer is not None:
+      for key, value in row.items():
+        self.tb_writer.add_scalar(key, value, self.tot_timesteps)
+      self.tb_writer.flush()
     print(
       self._build_console_log(
         it,
