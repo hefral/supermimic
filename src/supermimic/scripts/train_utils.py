@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mujoco_warp as mjwarp
 import torch
 import wandb
 from mjlab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
@@ -46,4 +47,17 @@ def create_env(
   """Set ``env_cfg.scene.num_envs`` and build a wrapped RL environment."""
   env_cfg.scene.num_envs = num_envs
   env = ManagerBasedRlEnv(cfg=env_cfg, device=device)
+  silence_solver_iteration_warnings(env)
   return RslRlVecEnvWrapper(env)
+
+
+def silence_solver_iteration_warnings(env: ManagerBasedRlEnv) -> None:
+  """Stop MuJoCo Warp printing when the solver or linesearch hits its iteration
+  cap. The tracking task caps them low on purpose, so early-training rollouts
+  flood the console. Buffer-overflow warnings stay on."""
+  sim = env.sim
+  sim.wp_model.opt.warn_overflow &= ~(
+    mjwarp.OverflowType.ITERATIONS | mjwarp.OverflowType.LS_ITERATIONS
+  )
+  # The flag is baked into the kernels, so the captured graphs must be rebuilt.
+  sim.create_graph()
