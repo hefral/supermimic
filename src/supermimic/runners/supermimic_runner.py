@@ -687,7 +687,9 @@ class SuperMimicRunner:
             run_name=wandb.run.name,
             term_widths=self._representation.proprio_term_widths(self._num_actions),
           )
-        upload = uploader.submit(log_model_artifact, checkpoint_files)
+        # Offline or disabled runs have no server to log the artifact to.
+        if not (wandb.run.offline or wandb.run.disabled):
+          upload = uploader.submit(log_model_artifact, checkpoint_files)
 
     uploader.shutdown()
     self._cleanup()

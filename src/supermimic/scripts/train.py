@@ -40,6 +40,9 @@ class TrainConfig:
 
 
 def main() -> None:
+  # W&B logs locally unless the caller opts in with WANDB_MODE=online.
+  os.environ.setdefault("WANDB_MODE", "offline")
+
   # Parse first argument to choose the task.
   all_tasks = list_tasks()
   chosen_task, remaining_args = tyro.cli(
